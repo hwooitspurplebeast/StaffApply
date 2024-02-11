@@ -1,54 +1,39 @@
+// server.js
 const express = require('express');
-const bodyParser = require('body-parser');
-const fs = require('fs');
-
 const app = express();
-const port = 3000;
+const admin = require('firebase-admin');
+const serviceAccount = require('./serviceAccountKey.json');
+const moment = require('moment');
 
-app.use(bodyParser.urlencoded({ extended: true }));
+admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+    storageBucket: 'gs://jwtez-780f2.appspot.com'
+});
+
 app.use(express.static('public'));
+app.use(express.json());
 
-// Middleware to extract user IP address
-app.use((req, res, next) => {
-  req.userIP = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
-  next();
+app.post('/submit-data', async (req, res) => {
+    try {
+        const data = req.body;
+        const textData = `Full Name: ${data.name}\nEmail: ${data.email}\nAge: ${data.age}\nReason to Join JwClan: ${data.reason}\nLevels in Free Fire: ${data.levels}\nUID: ${data.uid}\nSince you are playing Free Fire: ${data.playtime}\n`;
+
+        // Generate filename with datestamp and user IP address
+        const datestamp = moment().format('YYYY-MM-DD-HH-mm-ss');
+        const userIp = req.ip.replace(/:/g, '_'); // Replace colons in IPv6 with underscores
+        const filename = `${data.name}-${datestamp}-${userIp}.txt`;
+
+        const bucket = admin.storage().bucket();
+        const file = bucket.file(filename);
+        await file.save(textData);
+        res.send('Data saved successfully to cloud wait for 2-4 days your application will be reviewed by our staff');
+    } catch (error) {
+        console.error('Error saving data to Firebase Cloud Storage:', error);
+        res.status(500).send('An error occurred while saving data.');
+    }
 });
 
-// Map to store the submission count for each user IP
-const submissionCounts = new Map();
-
-app.get('/', (req, res) => {
-  res.sendFile(__dirname + '/public/index.html');
-});
-
-app.post('/submit', (req, res) => {
-  const userData = req.body;
-
-  // Use a filename format "User_(ip)_count.txt"
-  const userKey = `User_${req.userIP}`;
-  const count = submissionCounts.get(userKey) || 0;
-  const fileName = `${userKey}_${count}.txt`;
-
-  // Check if the user has already submitted an application
-  if (count > 0) {
-    // Redirect to blank.html if the user has already submitted
-    return res.redirect('/blank.html');
-  }
-
-  // Format user's answers
-  const formattedData = Object.entries(userData)
-    .map(([key, value]) => `${key}: ${value}`)
-    .join('\n');
-
-  // Save user data to a text file
-  fs.writeFileSync(`applications/${fileName}`, formattedData);
-
-  // Update the submission count for the user
-  submissionCounts.set(userKey, count + 1);
-
-  res.send('Application submitted successfully!');
-});
-
-app.listen(port, () => {
-  console.log(`Server is running at http://localhost:${port}`);
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
 });
